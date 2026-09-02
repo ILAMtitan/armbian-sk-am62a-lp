@@ -1,0 +1,25 @@
+diff --git a/arch/arm64/boot/dts/ti/k3-am62a7-sk.dts b/arch/arm64/boot/dts/ti/k3-am62a7-sk.dts
+index 54a0e7f9bbe8..252f8c6b701b 100644
+--- a/arch/arm64/boot/dts/ti/k3-am62a7-sk.dts
++++ b/arch/arm64/boot/dts/ti/k3-am62a7-sk.dts
+@@ -145,17 +145,12 @@ vcc_3v3_sys: regulator-4 {
+ 	};
+ 
+ 	vddshv_sdio: regulator-5 {
+-		compatible = "regulator-gpio";
++		compatible = "regulator-fixed";
+ 		regulator-name = "vddshv_sdio";
+-		pinctrl-names = "default";
+-		pinctrl-0 = <&vddshv_sdio_pins_default>;
+-		regulator-min-microvolt = <1800000>;
++		regulator-min-microvolt = <3300000>;
+ 		regulator-max-microvolt = <3300000>;
++		regulator-always-on;
+ 		regulator-boot-on;
+-		vin-supply = <&ldo1>;
+-		gpios = <&main_gpio0 31 GPIO_ACTIVE_HIGH>;
+-		states = <1800000 0x0>,
+-			 <3300000 0x1>;
+ 		bootph-all;
+ 	};
+ 
