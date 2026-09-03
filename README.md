@@ -12,9 +12,16 @@ board (AM62A7 SoC), enabling a complete Armbian build with working SD card boot.
 | Board | SK-AM62A-LP |
 | SoC | Texas Instruments AM62A7 |
 | Vendor | Texas Instruments |
-| Kernel | 6.18.13 (TI vendor branch, SDK 12.00.00.07) |
-| U-Boot | 2026.01 (TI vendor branch) |
+| Kernel | 6.12.y (`github.com/TexasInstruments/ti-linux-kernel`, branch `ti-linux-6.12.y`) |
+| U-Boot | 2025.01 (`github.com/TexasInstruments/ti-u-boot`, branch `ti-u-boot-2025.01`) |
 | Console | ttyS2 (115200 8N1) |
+
+`ti-linux-6.12.y` and `ti-u-boot-2025.01` are rolling branches, not fixed
+release tags — pin a specific commit before doing a build you need to
+reproduce later. This is the same kernel major.minor (6.12) as the working
+BeagleY-AI (`ti-k3-accelerators`) accelerator package, though that package
+builds from a different fork (`beagleboard/linux`, branch
+`v6.12.49-ti-arm64-r56`) — the two are version-aligned, not source-identical.
 
 ---
 
@@ -34,6 +41,11 @@ Waiting for root device PARTUUID=... deferred probe pending: platform: supplier 
 
 **Fix:** Replace `regulator-gpio` with `regulator-fixed` at a constant 3.3V.
 
+Note: on `ti-linux-6.12.y`, the upstream `vddshv_sdio` node does not carry a
+`bootph-all;` property (that property is present on later kernel branches).
+The 6.12 patch drops it accordingly rather than inventing a property the
+6.12 base doesn't have.
+
 ---
 
 ### 2. U-Boot A53 Build Failure — Missing Defconfig (U-Boot Patch)
@@ -51,7 +63,12 @@ that the GNU assembler rejects as a non-constant operand.
 ---
 
 ## Repository Structure
-armbian-sk-am62a-lp/ ├── README.md ├── config/ │ ├── boards/ │ │ └── sk-am62a-lp.conf ← Armbian board config │ └── kernel/ │ └── linux-k3-vendor.config ← Kernel config └── patch/ ├── kernel/ │ └── archive/ │ └── k3-6.18/ │ ├── 0002-am62a7-sk-lp-fix-vddshv_sdio-regulator-fixed-3v3.patch ← regulator fix │ └── board_sk-am62a-lp/ │ └── 0001-arm64-dts-ti-Add-SK-AM62A-LP-board-support.patch ← DTS addition └── u-boot/ └── u-boot-k3/ └── board_sk-am62a-lp/ └── 0001-configs-add-sk_am62a_lp_a53_defconfig.patch ← U-Boot defconfig
+armbian-sk-am62a-lp/ ├── README.md ├── config/ │ ├── boards/ │ │ └── sk-am62a-lp.conf ← Armbian board config │ └── kernel/ │ └── linux-k3-vendor.config ← Kernel config └── patch/ ├── kernel/ │ └── archive/ │ └── k3-6.12/ │ ├── 0001-arm64-dts-ti-Add-SK-AM62A-LP-board-support.patch ← DTS addition │ └── 0002-am62a7-sk-lp-fix-vddshv_sdio-regulator-fixed-3v3.patch ← regulator fix └── u-boot/ └── u-boot-k3/ └── board_sk-am62a-lp/ └── 0001-configs-add-sk_am62a_lp_a53_defconfig.patch ← U-Boot defconfig
+
+Both kernel patches live flat under `k3-6.12/` (no `board_*/` subdirectory) —
+Armbian's kernel patch stage never scans `board_*/` subdirectories, see
+"Armbian Patching Architecture Notes" below. Only U-Boot patching supports
+per-board subdirectories.
 
 
 ---
@@ -80,18 +97,25 @@ cd ~/Armbian/build
 REPO=~/armbian-sk-am62a-lp
 BUILD=~/Armbian/build
 
-mkdir -p $BUILD/config/boards
-mkdir -p $BUILD/config/kernel
-mkdir -p $BUILD/patch/kernel/archive/k3-6.18/board_sk-am62a-lp
-mkdir -p $BUILD/patch/u-boot/u-boot-k3/board_sk-am62a-lp
+Apply everything under `$BUILD/userpatches/`, NOT the tracked `config/` and
+`patch/` trees directly. `config/kernel/linux-k3-vendor.config` in particular
+is a file **shared by 13+ other K3-family boards** (`sk-am62p`, `sk-am68`,
+`beagleplay`, etc.) — copying over it in place would silently change their
+kernel config too. Armbian's kernel-config, board-config, and patch lookups
+all check `userpatches/` first and fall back to the tracked repo files, so
+this is the supported override mechanism and never touches shared files.
 
-cp $REPO/config/boards/sk-am62a-lp.conf              $BUILD/config/boards/
-cp $REPO/config/kernel/linux-k3-vendor.config        $BUILD/config/kernel/
-cp $REPO/patch/kernel/archive/k3-6.18/0002-*.patch   $BUILD/patch/kernel/archive/k3-6.18/
-cp $REPO/patch/kernel/archive/k3-6.18/board_sk-am62a-lp/0001-*.patch \
-                                                      $BUILD/patch/kernel/archive/k3-6.18/board_sk-am62a-lp/
+mkdir -p $BUILD/userpatches/config/boards
+mkdir -p $BUILD/userpatches/config/kernel
+mkdir -p $BUILD/userpatches/patch/kernel/archive/k3-6.12
+mkdir -p $BUILD/userpatches/patch/u-boot/u-boot-k3/board_sk-am62a-lp
+
+cp $REPO/config/boards/sk-am62a-lp.conf              $BUILD/userpatches/config/boards/
+cp $REPO/config/kernel/linux-k3-vendor.config        $BUILD/userpatches/config/kernel/
+cp $REPO/patch/kernel/archive/k3-6.12/0001-*.patch \
+   $REPO/patch/kernel/archive/k3-6.12/0002-*.patch   $BUILD/userpatches/patch/kernel/archive/k3-6.12/
 cp $REPO/patch/u-boot/u-boot-k3/board_sk-am62a-lp/0001-*.patch \
-                                                      $BUILD/patch/u-boot/u-boot-k3/board_sk-am62a-lp/
+                                            $BUILD/userpatches/patch/u-boot/u-boot-k3/board_sk-am62a-lp/
 
 3. Build
 cd ~/Armbian/build
@@ -99,7 +123,7 @@ cd ~/Armbian/build
   BOARD=sk-am62a-lp \
   BRANCH=vendor \
   BUILD_MINIMAL=yes \
-  RELEASE=jammy \
+  RELEASE=noble \
   CLEAN_LEVEL=make
 
 4. Verify DTB Before Flashing
@@ -128,8 +152,8 @@ to the kernel patching stage, so
 board_${BOARD}/
 
 subdirectories are not scanned for kernel patches. Kernel patches must be placed flat:
-patch/kernel/archive/k3-6.18/          ← kernel patches go HERE (flat)
-patch/kernel/archive/k3-6.18/board_*/  ← NOT scanned during kernel build
+patch/kernel/archive/k3-6.12/          ← kernel patches go HERE (flat)
+patch/kernel/archive/k3-6.12/board_*/  ← NOT scanned during kernel build
 
 U-Boot patches — board subdirectories work
 U-Boot patching does support board subdirectories:
